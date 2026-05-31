@@ -838,6 +838,7 @@ dependencies = [
  "ragu_macros",
  "ragu_testing",
  "rand 0.10.0",
+ "zcash-pasta-accel",
 ]
 
 [[package]]
@@ -872,7 +873,7 @@ dependencies = [
  "ragu_pasta",
  "ragu_testing",
  "rand 0.10.0",
- "thiserror",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -938,7 +939,7 @@ dependencies = [
  "ragu_pasta",
  "ragu_testing",
  "rand 0.10.0",
- "thiserror",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1207,11 +1208,31 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 2.0.18",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1488,6 +1509,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
+]
+
+[[package]]
+name = "zcash-pasta-accel"
+version = "0.1.0"
+dependencies = [
+ "pasta_curves",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

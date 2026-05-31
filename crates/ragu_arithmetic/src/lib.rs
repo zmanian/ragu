@@ -71,6 +71,8 @@
 #[cfg(not(feature = "alloc"))]
 compile_error!("`ragu_arithmetic` requires the `alloc` feature to be enabled.");
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 mod coeff;
 mod domain;
@@ -94,6 +96,15 @@ pub use ragu_macros::repr256;
 pub use util::{
     batch_to_affine, decomp_product_poly, dot, eval, factor, factor_iter, geosum, low_u64, mul,
     poly_mul, poly_with_roots,
+};
+
+#[cfg(feature = "accel-msm")]
+/// Backend selector for feature-gated MSM acceleration dispatch.
+pub use zcash_pasta_accel::Backend as AccelBackend;
+
+#[cfg(feature = "accel-msm")]
+pub use util::{
+    AccelMsmConfig, AccelMsmStats, accel_msm_stats, mul_with_accel_config, reset_accel_msm_stats,
 };
 
 /// Represents a "cycle" of elliptic curves where the scalar field of one curve

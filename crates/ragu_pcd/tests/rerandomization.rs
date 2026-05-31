@@ -262,3 +262,43 @@ fn rerandomized_fused_proof_verifies() {
         "rerandomized fused proof should verify"
     );
 }
+
+#[cfg(feature = "accel-msm")]
+#[test]
+fn seed_with_accel_config_falls_back_and_verifies() {
+    use ragu_arithmetic::{AccelBackend, accel_msm_stats, reset_accel_msm_stats};
+    use ragu_pcd::ProverAccelConfig;
+
+    let pasta = Pasta::baked();
+    let app = ApplicationBuilder::<Pasta, ProductionRank, 4>::new()
+        .register(Step0)
+        .unwrap()
+        .finalize(pasta)
+        .unwrap();
+
+    let mut rng = StdRng::seed_from_u64(4242);
+    reset_accel_msm_stats();
+
+    let (seeded, _) = app
+        .seed_with_accel_config(
+            &mut rng,
+            Step0,
+            (),
+            ProverAccelConfig {
+                backend: AccelBackend::Cuda,
+                min_msm_size: 1,
+                min_fft_log2: 0,
+                allow_gpu_witness_buffers: false,
+            },
+        )
+        .unwrap();
+
+    let stats = accel_msm_stats();
+    assert!(stats.candidates > 0);
+    assert!(stats.fallbacks > 0);
+    assert_eq!(stats.facade_results, 0);
+    assert_eq!(stats.fallbacks, stats.candidates);
+
+    reset_accel_msm_stats();
+    assert!(app.verify(&seeded, &mut rng).unwrap());
+}

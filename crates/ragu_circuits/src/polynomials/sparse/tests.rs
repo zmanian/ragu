@@ -495,6 +495,44 @@ proptest! {
     }
 }
 
+#[cfg(feature = "accel-msm")]
+#[test]
+fn commit_with_accel_config_records_forced_backend_fallback() {
+    use ragu_arithmetic::{
+        AccelBackend, AccelMsmConfig, Cycle, FixedGenerators, accel_msm_stats,
+        reset_accel_msm_stats,
+    };
+    use ragu_pasta::Pasta;
+
+    let pasta = Pasta::baked();
+    let generators = Pasta::host_generators(pasta);
+    let coeffs = (0..R::num_coeffs())
+        .map(|i| Fp::from(i as u64 + 1))
+        .collect::<Vec<_>>();
+    let poly = Polynomial::<Fp, R>::from_coeffs(coeffs.clone());
+
+    let expected: <Pasta as Cycle>::HostCurve =
+        ragu_arithmetic::mul(coeffs.iter(), generators.g().iter().take(coeffs.len())).into();
+
+    reset_accel_msm_stats();
+
+    let actual = poly.commit_to_affine_with_accel_config(
+        generators,
+        AccelMsmConfig {
+            backend: AccelBackend::Cuda,
+            min_msm_size: 1,
+        },
+    );
+
+    assert_eq!(actual, expected);
+
+    let stats = accel_msm_stats();
+    assert_eq!(stats.candidates, 1);
+    assert_eq!(stats.facade_results, 0);
+    assert_eq!(stats.fallbacks, 1);
+    assert_eq!(stats.total_candidate_points, coeffs.len() as u64);
+}
+
 #[test]
 fn zero_polynomial_operations() {
     let zero = Polynomial::<Fp, R>::new();

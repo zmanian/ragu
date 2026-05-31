@@ -81,7 +81,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                 native_f: native.commitment,
             },
         )?;
-        let bridge_commitment = bridge_rx.commit_to_affine(C::nested_generators(self.params));
+        let bridge_commitment = builder.commit_nested(&bridge_rx);
         builder.set_bridge_f_rx(bridge_rx, bridge_commitment);
         Ok(())
     }
@@ -177,7 +177,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         coeffs.reverse();
 
         let poly = sparse::Polynomial::from_coeffs(coeffs);
-        let commitment = poly.commit_to_affine(C::host_generators(self.params));
+        let commitment = builder.commit_native(&poly);
 
         Ok(NativeF { poly, commitment })
     }

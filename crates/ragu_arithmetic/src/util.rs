@@ -8,6 +8,109 @@ use pasta_curves::{
 
 use crate::{domain::Domain, multicore::*};
 
+#[cfg(feature = "accel-msm")]
+use core::sync::atomic::{AtomicU64, Ordering};
+
+/// Runtime counters for feature-gated MSM acceleration dispatch.
+#[cfg(feature = "accel-msm")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AccelMsmStats {
+    /// Number of MSMs that met the configured acceleration threshold.
+    pub candidates: u64,
+
+    /// Number of candidates that returned a result from the shared acceleration facade.
+    pub facade_results: u64,
+
+    /// Number of candidates that fell back to Ragu's CPU MSM path.
+    pub fallbacks: u64,
+
+    /// Total points across candidate MSMs.
+    pub total_candidate_points: u64,
+}
+
+/// Configuration for feature-gated MSM acceleration dispatch.
+#[cfg(feature = "accel-msm")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AccelMsmConfig {
+    /// Backend requested from the shared Pasta acceleration facade.
+    pub backend: zcash_pasta_accel::Backend,
+
+    /// Minimum MSM size before attempting acceleration.
+    pub min_msm_size: usize,
+}
+
+#[cfg(feature = "accel-msm")]
+impl AccelMsmConfig {
+    /// Default MSM size threshold used when `ZCASH_ACCEL_MIN_MSM` is unset or invalid.
+    pub const DEFAULT_MIN_MSM_SIZE: usize = 4096;
+
+    /// Loads MSM acceleration config from environment variables.
+    pub fn from_env() -> Self {
+        Self {
+            backend: zcash_pasta_accel::selected_backend(),
+            min_msm_size: std::env::var("ZCASH_ACCEL_MIN_MSM")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(Self::DEFAULT_MIN_MSM_SIZE),
+        }
+    }
+}
+
+#[cfg(feature = "accel-msm")]
+impl Default for AccelMsmConfig {
+    fn default() -> Self {
+        Self::from_env()
+    }
+}
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_CANDIDATES: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_FACADE_RESULTS: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_TOTAL_CANDIDATE_POINTS: AtomicU64 = AtomicU64::new(0);
+
+/// Returns current MSM acceleration dispatch counters.
+#[cfg(feature = "accel-msm")]
+pub fn accel_msm_stats() -> AccelMsmStats {
+    AccelMsmStats {
+        candidates: ACCEL_MSM_CANDIDATES.load(Ordering::Relaxed),
+        facade_results: ACCEL_MSM_FACADE_RESULTS.load(Ordering::Relaxed),
+        fallbacks: ACCEL_MSM_FALLBACKS.load(Ordering::Relaxed),
+        total_candidate_points: ACCEL_MSM_TOTAL_CANDIDATE_POINTS.load(Ordering::Relaxed),
+    }
+}
+
+/// Resets MSM acceleration dispatch counters.
+#[cfg(feature = "accel-msm")]
+pub fn reset_accel_msm_stats() {
+    ACCEL_MSM_CANDIDATES.store(0, Ordering::Relaxed);
+    ACCEL_MSM_FACADE_RESULTS.store(0, Ordering::Relaxed);
+    ACCEL_MSM_FALLBACKS.store(0, Ordering::Relaxed);
+    ACCEL_MSM_TOTAL_CANDIDATE_POINTS.store(0, Ordering::Relaxed);
+}
+
+#[cfg(feature = "accel-msm")]
+fn record_accel_msm_candidate(points: usize) {
+    ACCEL_MSM_CANDIDATES.fetch_add(1, Ordering::Relaxed);
+    ACCEL_MSM_TOTAL_CANDIDATE_POINTS.fetch_add(points as u64, Ordering::Relaxed);
+}
+
+#[cfg(feature = "accel-msm")]
+fn record_accel_msm_facade_result() {
+    ACCEL_MSM_FACADE_RESULTS.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(feature = "accel-msm")]
+fn record_accel_msm_fallback() {
+    ACCEL_MSM_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+}
+
 /// Returns the low 64 bits of a [`PrimeField`] element's canonical
 /// little-endian representation.
 ///
@@ -183,16 +286,35 @@ pub fn batch_to_affine<C: CurveAffine, const N: usize>(projectives: [C::Curve; N
 ///
 /// The caller must ensure that `coeffs` and `bases` yield the same number of
 /// elements.
-pub fn mul<
-    'a,
-    C: CurveAffine,
-    A: IntoIterator<Item = &'a C::Scalar>,
-    B: IntoIterator<Item = &'a C>,
->(
+pub fn mul<'s, 'b, C, A: IntoIterator<Item = &'s C::Scalar>, B: IntoIterator<Item = &'b C>>(
     coeffs: A,
     bases: B,
 ) -> C::Curve
 where
+    C: CurveAffine + 'b + 'static,
+    C::Curve: Clone + 'static,
+    C::Scalar: 's,
+    C::Scalar: 'static,
+    B::IntoIter: Clone + Sync,
+{
+    #[cfg(feature = "accel-msm")]
+    {
+        mul_with_accel_config::<C, A, B>(coeffs, bases, AccelMsmConfig::from_env())
+    }
+
+    #[cfg(not(feature = "accel-msm"))]
+    {
+        cpu_mul::<C, A, B>(coeffs, bases)
+    }
+}
+
+fn cpu_mul<'s, 'b, C, A: IntoIterator<Item = &'s C::Scalar>, B: IntoIterator<Item = &'b C>>(
+    coeffs: A,
+    bases: B,
+) -> C::Curve
+where
+    C: CurveAffine + 'b,
+    C::Scalar: 's,
     B::IntoIter: Clone + Sync,
 {
     let coeffs: Vec<_> = coeffs.into_iter().map(|a| a.to_repr()).collect();
@@ -299,6 +421,47 @@ where
     }
 
     acc
+}
+
+#[cfg(feature = "accel-msm")]
+/// Computes an MSM using explicit acceleration dispatch configuration.
+pub fn mul_with_accel_config<
+    's,
+    'b,
+    C,
+    A: IntoIterator<Item = &'s C::Scalar>,
+    B: IntoIterator<Item = &'b C>,
+>(
+    coeffs: A,
+    bases: B,
+    config: AccelMsmConfig,
+) -> C::Curve
+where
+    C: CurveAffine + 'b + 'static,
+    C::Curve: Clone + 'static,
+    C::Scalar: 's,
+    C::Scalar: 'static,
+    B::IntoIter: Clone + Sync,
+{
+    let coeffs = coeffs.into_iter().copied().collect::<Vec<_>>();
+    let bases = bases.into_iter();
+
+    if coeffs.len() >= config.min_msm_size {
+        record_accel_msm_candidate(coeffs.len());
+        let collected_bases = bases.clone().copied().collect::<Vec<_>>();
+        match zcash_pasta_accel::try_msm::<C>(&coeffs, &collected_bases, config.backend) {
+            Ok(Some(result)) => {
+                record_accel_msm_facade_result();
+                return result;
+            }
+            Ok(None) | Err(_) => {
+                record_accel_msm_fallback();
+                return cpu_mul::<C, _, _>(coeffs.iter(), collected_bases.iter());
+            }
+        }
+    }
+
+    cpu_mul::<C, _, _>(coeffs.iter(), bases)
 }
 
 /// Computes the geometric sum $0 + 1 + r + ... + r^{m-1}$.
@@ -760,6 +923,67 @@ fn test_mul() {
         });
 
     assert_eq!(mul(coeffs.iter(), bases.iter()), expected);
+}
+
+#[cfg(feature = "accel-msm")]
+#[test]
+fn test_accel_msm_matches_cpu_mul_for_pasta_curves() {
+    use pasta_curves::group::{Curve, CurveAffine};
+
+    let eq_coeffs = (0..64)
+        .map(|i| pasta_curves::Fp::from(i + 1))
+        .collect::<Vec<_>>();
+    let eq_bases = (0..64)
+        .map(|i| (pasta_curves::EqAffine::generator() * pasta_curves::Fp::from(i + 7)).to_affine())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        mul(eq_coeffs.iter(), eq_bases.iter()),
+        cpu_mul::<pasta_curves::EqAffine, _, _>(eq_coeffs.iter(), eq_bases.iter())
+    );
+
+    let ep_coeffs = (0..64)
+        .map(|i| pasta_curves::Fq::from(i + 1))
+        .collect::<Vec<_>>();
+    let ep_bases = (0..64)
+        .map(|i| (pasta_curves::EpAffine::generator() * pasta_curves::Fq::from(i + 7)).to_affine())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        mul(ep_coeffs.iter(), ep_bases.iter()),
+        cpu_mul::<pasta_curves::EpAffine, _, _>(ep_coeffs.iter(), ep_bases.iter())
+    );
+}
+
+#[cfg(feature = "accel-msm")]
+#[test]
+fn test_accel_msm_records_forced_backend_fallback() {
+    use pasta_curves::group::{Curve, CurveAffine};
+
+    reset_accel_msm_stats();
+
+    let coeffs = (0..64)
+        .map(|i| pasta_curves::Fp::from(i + 1))
+        .collect::<Vec<_>>();
+    let bases = (0..64)
+        .map(|i| (pasta_curves::EqAffine::generator() * pasta_curves::Fp::from(i + 7)).to_affine())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        mul_with_accel_config(
+            coeffs.iter(),
+            bases.iter(),
+            AccelMsmConfig {
+                backend: zcash_pasta_accel::Backend::Cuda,
+                min_msm_size: 1,
+            },
+        ),
+        cpu_mul::<pasta_curves::EqAffine, _, _>(coeffs.iter(), bases.iter())
+    );
+
+    let stats = accel_msm_stats();
+    assert_eq!(stats.candidates, 1);
+    assert_eq!(stats.facade_results, 0);
+    assert_eq!(stats.fallbacks, 1);
+    assert_eq!(stats.total_candidate_points, 64);
 }
 
 #[test]

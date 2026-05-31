@@ -26,6 +26,7 @@ rustdoc-args = ["--html-in-header", "katex-header.html"]
 all-features = true
 
 [features]
+accel-msm = ["std", "ragu_arithmetic/accel-msm", "ragu_circuits/accel-msm"]
 alloc = []
 default = ["alloc"]
 multicore = ["maybe-rayon/threads", "ragu_arithmetic/multicore", "ragu_circuits/multicore", "std"]
@@ -66,4 +67,9 @@ harness = false
 [[bench]]
 name = "registry_criterion"
 path = "benches/criterion/registry.rs"
+harness = false
+
+[[bench]]
+name = "pcd_accel_criterion"
+path = "benches/criterion/pcd_accel.rs"
 harness = false

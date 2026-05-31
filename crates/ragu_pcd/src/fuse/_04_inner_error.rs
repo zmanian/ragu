@@ -60,7 +60,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                 registry_wy: registry_wy.commitment,
             },
         )?;
-        let bridge_commitment = bridge_rx.commit_to_affine(C::nested_generators(self.params));
+        let bridge_commitment = builder.commit_nested(&bridge_rx);
         builder.set_bridge_inner_error_rx(bridge_rx, bridge_commitment);
         Ok(())
     }
@@ -103,8 +103,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         builder.set_native_inner_error_rx(native_rx);
 
         let registry_wy_poly = native_registry.y(y);
-        let registry_wy_commitment =
-            registry_wy_poly.commit_to_affine(C::host_generators(self.params));
+        let registry_wy_commitment = builder.commit_native(&registry_wy_poly);
         let registry_wy = RegistryWy {
             poly: registry_wy_poly,
             commitment: registry_wy_commitment,

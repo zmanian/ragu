@@ -67,7 +67,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                 right: nested::stages::preamble::ChildWitness::from_proof(right),
             },
         )?;
-        let bridge_commitment = bridge_rx.commit_to_affine(C::nested_generators(self.params));
+        let bridge_commitment = builder.commit_nested(&bridge_rx);
         builder.set_bridge_preamble_rx(bridge_rx, bridge_commitment);
         Ok(())
     }

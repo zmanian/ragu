@@ -19,6 +19,8 @@ use ragu_circuits::{
 use ragu_core::Result;
 
 use super::{Cached, Proof};
+#[cfg(feature = "accel-msm")]
+use crate::ProverAccelConfig;
 use crate::internal::nested;
 
 /// Produces `pub(crate) fn $name(&mut self, v: $ty)` that sets an `Option`
@@ -41,18 +43,19 @@ macro_rules! setter {
 /// and the corresponding generators source.
 macro_rules! lazy_commitment {
     (native, $getter:ident, $cache:ident, $poly:ident) => {
-        lazy_commitment!(@impl $getter, $cache, $poly, C::HostCurve, C::host_generators);
+        lazy_commitment!(@impl $getter, $cache, $poly, C::HostCurve, commit_native);
     };
     (nested, $getter:ident, $cache:ident, $poly:ident) => {
-        lazy_commitment!(@impl $getter, $cache, $poly, C::NestedCurve, C::nested_generators);
+        lazy_commitment!(@impl $getter, $cache, $poly, C::NestedCurve, commit_nested);
     };
-    (@impl $getter:ident, $cache:ident, $poly:ident, $curve:ty, $gen:path) => {
+    (@impl $getter:ident, $cache:ident, $poly:ident, $curve:ty, $commit:ident) => {
         pub(crate) fn $getter(&self) -> $curve {
             *self.$cache.get_or_init(|| {
-                self.$poly
-                    .as_ref()
-                    .expect(concat!(stringify!($poly), " not set"))
-                    .commit_to_affine($gen(self.params))
+                self.$commit(
+                    self.$poly
+                        .as_ref()
+                        .expect(concat!(stringify!($poly), " not set")),
+                )
             })
         }
     };
@@ -195,9 +198,7 @@ macro_rules! cached_bridge {
 
         pub(crate) fn $commitment(&self) -> Result<C::NestedCurve> {
             let rx = self.$rx()?;
-            Ok(*self.$commitment.get_or_init(|| {
-                rx.commit_to_affine(C::nested_generators(self.params))
-            }))
+            Ok(*self.$commitment.get_or_init(|| self.commit_nested(rx)))
         }
     };
 }
@@ -209,6 +210,9 @@ macro_rules! cached_bridge {
 /// because they are computed via non-standard techniques.
 pub(crate) struct ProofBuilder<'params, C: Cycle, R: Rank> {
     params: &'params C::Params,
+
+    #[cfg(feature = "accel-msm")]
+    accel_config: Option<ProverAccelConfig>,
 
     /// Shared alpha source for the four cached bridge commitments.
     bridge_alpha: C::ScalarField,
@@ -311,6 +315,8 @@ impl<'params, C: Cycle, R: Rank> ProofBuilder<'params, C, R> {
     pub(crate) fn new(params: &'params C::Params, bridge_alpha: C::ScalarField) -> Self {
         Self {
             params,
+            #[cfg(feature = "accel-msm")]
+            accel_config: None,
             bridge_alpha,
             circuit_id: None,
             left_header: None,
@@ -383,9 +389,67 @@ impl<'params, C: Cycle, R: Rank> ProofBuilder<'params, C, R> {
         }
     }
 
+    /// Create a new builder with explicit prover acceleration config.
+    #[cfg(feature = "accel-msm")]
+    pub(crate) fn new_with_accel_config(
+        params: &'params C::Params,
+        bridge_alpha: C::ScalarField,
+        accel_config: Option<ProverAccelConfig>,
+    ) -> Self {
+        let mut builder = Self::new(params, bridge_alpha);
+        builder.accel_config = accel_config;
+        builder
+    }
+
     /// Returns a reference to the params.
     pub(crate) fn params(&self) -> &C::Params {
         self.params
+    }
+
+    /// Commits a native-field polynomial to the host curve.
+    pub(crate) fn commit_native(
+        &self,
+        poly: &sparse::Polynomial<C::CircuitField, R>,
+    ) -> C::HostCurve {
+        #[cfg(feature = "accel-msm")]
+        if let Some(config) = self.accel_config {
+            return poly.commit_to_affine_with_accel_config(
+                C::host_generators(self.params),
+                config.msm_config(),
+            );
+        }
+
+        poly.commit_to_affine(C::host_generators(self.params))
+    }
+
+    /// Commits a native-field polynomial to the host curve in projective form.
+    pub(crate) fn commit_native_projective(
+        &self,
+        poly: &sparse::Polynomial<C::CircuitField, R>,
+    ) -> <C::HostCurve as ragu_arithmetic::CurveAffine>::CurveExt {
+        #[cfg(feature = "accel-msm")]
+        if let Some(config) = self.accel_config {
+            return poly
+                .commit_with_accel_config(C::host_generators(self.params), config.msm_config());
+        }
+
+        poly.commit(C::host_generators(self.params))
+    }
+
+    /// Commits a scalar-field polynomial to the nested curve.
+    pub(crate) fn commit_nested(
+        &self,
+        poly: &sparse::Polynomial<C::ScalarField, R>,
+    ) -> C::NestedCurve {
+        #[cfg(feature = "accel-msm")]
+        if let Some(config) = self.accel_config {
+            return poly.commit_to_affine_with_accel_config(
+                C::nested_generators(self.params),
+                config.msm_config(),
+            );
+        }
+
+        poly.commit_to_affine(C::nested_generators(self.params))
     }
 
     setter!(set_circuit_id, circuit_id, CircuitIndex);
@@ -579,12 +643,11 @@ impl<'params, C: Cycle, R: Rank> ProofBuilder<'params, C, R> {
     /// polynomials. Returns the cached slice.
     pub(crate) fn nested_endoscaling_step_commitments(&self) -> &[C::NestedCurve] {
         self.nested_endoscaling_step_commitments.get_or_init(|| {
-            let nested_gen = C::nested_generators(self.params);
             self.nested_endoscaling_step_rxs
                 .as_ref()
                 .expect("nested_endoscaling_step_rxs not set")
                 .iter()
-                .map(|rx| rx.commit_to_affine(nested_gen))
+                .map(|rx| self.commit_nested(rx))
                 .collect()
         })
     }

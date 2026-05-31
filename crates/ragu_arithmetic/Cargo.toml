@@ -20,6 +20,8 @@ rustdoc-args = ["--html-in-header", "katex-header.html"]
 all-features = true
 
 [features]
+accel-fft = ["std", "dep:zcash-pasta-accel"]
+accel-msm = ["std", "dep:zcash-pasta-accel"]
 alloc = []
 default = ["alloc"]
 multicore = ["maybe-rayon/threads", "std"]
@@ -34,6 +36,7 @@ pasta_curves = { workspace = true }
 ragu_macros = { path = "../ragu_macros", version = "0.0.0" }
 rand = { workspace = true }
 maybe-rayon = { workspace = true }
+zcash-pasta-accel = { path = "../../../../crates/zcash-pasta-accel", optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -20,6 +20,7 @@ rustdoc-args = ["--html-in-header", "katex-header.html"]
 all-features = true
 
 [features]
+accel-msm = ["std", "ragu_arithmetic/accel-msm"]
 alloc = []
 default = ["alloc"]
 multicore = ["maybe-rayon/threads", "ragu_arithmetic/multicore", "std"]

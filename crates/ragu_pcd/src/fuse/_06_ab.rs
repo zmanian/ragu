@@ -87,8 +87,6 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
 
         let b_poly =
             fold_revdot::fold_outer::<_, _, native::RevdotParameters>(b, mu_prime_nu_prime);
-        let host_gen = C::host_generators(self.params);
-
         // Compute a_commitment from decomposition: small MSM over known
         // commitments, resolved directly from the child proofs rather than
         // full polynomial-degree MSM.
@@ -114,8 +112,10 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             ragu_arithmetic::mul(msm.iter().map(|(c, _)| c), msm.iter().map(|(_, b)| b))
         };
 
-        let [a_commitment, b_commitment] =
-            ragu_arithmetic::batch_to_affine([a_commitment_proj, b_poly.commit(host_gen)]);
+        let [a_commitment, b_commitment] = ragu_arithmetic::batch_to_affine([
+            a_commitment_proj,
+            builder.commit_native_projective(&b_poly),
+        ]);
 
         builder.set_native_a_poly(a_poly, a_commitment);
         builder.set_native_b_poly(b_poly, b_commitment);

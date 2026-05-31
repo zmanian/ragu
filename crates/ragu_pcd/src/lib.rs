@@ -51,6 +51,55 @@ use step::{Step, internal::adapter::Adapter};
 // FIXME: choose a permanent domain separation tag before release.
 pub(crate) const RAGU_TAG: &[u8] = b"FIXME";
 
+/// Prover-side acceleration configuration for explicit PCD APIs.
+#[cfg(feature = "accel-msm")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProverAccelConfig {
+    /// Backend requested from the shared Pasta acceleration facade.
+    pub backend: ragu_arithmetic::AccelBackend,
+
+    /// Minimum MSM size before attempting acceleration.
+    pub min_msm_size: usize,
+
+    /// Minimum FFT domain log2 before a future FFT accelerator may be used.
+    pub min_fft_log2: u32,
+
+    /// Whether future GPU paths may keep witness buffers on the device.
+    pub allow_gpu_witness_buffers: bool,
+}
+
+#[cfg(feature = "accel-msm")]
+impl ProverAccelConfig {
+    /// Default FFT-domain threshold reserved for future `accel-fft` work.
+    pub const DEFAULT_MIN_FFT_LOG2: u32 = 14;
+
+    /// Builds an automatic prover acceleration config from environment-backed
+    /// MSM defaults.
+    pub fn auto() -> Self {
+        let msm = ragu_arithmetic::AccelMsmConfig::default();
+        Self {
+            backend: msm.backend,
+            min_msm_size: msm.min_msm_size,
+            min_fft_log2: Self::DEFAULT_MIN_FFT_LOG2,
+            allow_gpu_witness_buffers: false,
+        }
+    }
+
+    pub(crate) fn msm_config(self) -> ragu_arithmetic::AccelMsmConfig {
+        ragu_arithmetic::AccelMsmConfig {
+            backend: self.backend,
+            min_msm_size: self.min_msm_size,
+        }
+    }
+}
+
+#[cfg(feature = "accel-msm")]
+impl Default for ProverAccelConfig {
+    fn default() -> Self {
+        Self::auto()
+    }
+}
+
 /// Builder for an [`Application`] for proof-carrying data.
 pub struct ApplicationBuilder<'params, C: Cycle, R: Rank, const HEADER_SIZE: usize> {
     native_registry: RegistryBuilder<'params, C::CircuitField, R>,
@@ -226,6 +275,25 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         self.fuse(rng, step, witness, self.trivial_pcd(), self.trivial_pcd())
     }
 
+    /// Seed a new computation using explicit prover acceleration config.
+    #[cfg(feature = "accel-msm")]
+    pub fn seed_with_accel_config<'source, RNG: CryptoRng, S: Step<C, Left = (), Right = ()>>(
+        &self,
+        rng: &mut RNG,
+        step: S,
+        witness: S::Witness<'source>,
+        accel_config: ProverAccelConfig,
+    ) -> Result<(Pcd<C, R, S::Output>, S::Aux<'source>)> {
+        self.fuse_with_accel_config(
+            rng,
+            step,
+            witness,
+            self.trivial_pcd_with_accel_config(accel_config),
+            self.trivial_pcd_with_accel_config(accel_config),
+            accel_config,
+        )
+    }
+
     /// Returns a seeded trivial proof for use in rerandomization.
     ///
     /// A seeded trivial is a trivial proof that has been through `seed()`
@@ -271,6 +339,39 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             (),
             pcd,
             seeded_trivial,
+        )
+        .map(|(pcd, ())| pcd)
+    }
+
+    /// Rerandomize proof-carrying data using explicit prover acceleration
+    /// config for the fuse step.
+    #[cfg(feature = "accel-msm")]
+    pub fn rerandomize_with_accel_config<RNG: CryptoRng, H: Header<C::CircuitField>>(
+        &self,
+        pcd: Pcd<C, R, H>,
+        rng: &mut RNG,
+        accel_config: ProverAccelConfig,
+    ) -> Result<Pcd<C, R, H>> {
+        let seeded_trivial = self
+            .seed_with_accel_config(
+                rng,
+                step::internal::trivial::Trivial::new(),
+                (),
+                accel_config,
+            )
+            .expect("seeded trivial seed should not fail")
+            .0
+            .into_parts()
+            .0
+            .carry(());
+
+        self.fuse_with_accel_config(
+            rng,
+            step::internal::rerandomize::Rerandomize::new(),
+            (),
+            pcd,
+            seeded_trivial,
+            accel_config,
         )
         .map(|(pcd, ())| pcd)
     }

@@ -28,6 +28,12 @@ use crate::{
     Application, Pcd, RAGU_TAG, internal::transcript::Transcript, proof::ProofBuilder, step::Step,
 };
 
+#[cfg(feature = "accel-msm")]
+use crate::ProverAccelConfig;
+
+#[cfg(not(feature = "accel-msm"))]
+type ProverAccelConfig = ();
+
 /// Ephemeral native-field data for $f(X)$, used only during the fuse step.
 struct NativeF<C: Cycle, R: Rank> {
     poly: sparse::Polynomial<C::CircuitField, R>,
@@ -76,7 +82,43 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         left: Pcd<C, R, S::Left>,
         right: Pcd<C, R, S::Right>,
     ) -> Result<(Pcd<C, R, S::Output>, S::Aux<'source>)> {
-        let mut builder = ProofBuilder::new(self.params, C::ScalarField::random(&mut *rng));
+        self.fuse_inner(rng, step, witness, left, right, None)
+    }
+
+    /// Fuse two [`Pcd`] into one using explicit prover acceleration config.
+    #[cfg(feature = "accel-msm")]
+    pub fn fuse_with_accel_config<'source, RNG: CryptoRng, S: Step<C>>(
+        &self,
+        rng: &mut RNG,
+        step: S,
+        witness: S::Witness<'source>,
+        left: Pcd<C, R, S::Left>,
+        right: Pcd<C, R, S::Right>,
+        accel_config: crate::ProverAccelConfig,
+    ) -> Result<(Pcd<C, R, S::Output>, S::Aux<'source>)> {
+        self.fuse_inner(rng, step, witness, left, right, Some(accel_config))
+    }
+
+    fn fuse_inner<'source, RNG: CryptoRng, S: Step<C>>(
+        &self,
+        rng: &mut RNG,
+        step: S,
+        witness: S::Witness<'source>,
+        left: Pcd<C, R, S::Left>,
+        right: Pcd<C, R, S::Right>,
+        accel_config: Option<ProverAccelConfig>,
+    ) -> Result<(Pcd<C, R, S::Output>, S::Aux<'source>)> {
+        #[cfg(feature = "accel-msm")]
+        let mut builder = ProofBuilder::new_with_accel_config(
+            self.params,
+            C::ScalarField::random(&mut *rng),
+            accel_config,
+        );
+        #[cfg(not(feature = "accel-msm"))]
+        let mut builder = {
+            let _ = accel_config;
+            ProofBuilder::new(self.params, C::ScalarField::random(&mut *rng))
+        };
 
         let (left, right, application_data, application_aux) =
             self.compute_application_proof(rng, step, witness, left, right, &mut builder)?;

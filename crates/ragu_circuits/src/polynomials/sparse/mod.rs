@@ -471,6 +471,30 @@ impl<F: Field, R: Rank> Polynomial<F, R> {
         )
     }
 
+    /// Computes a commitment to this polynomial using explicit MSM
+    /// acceleration dispatch configuration.
+    #[cfg(feature = "accel-msm")]
+    pub fn commit_with_accel_config<C: CurveAffine<ScalarExt = F> + 'static>(
+        &self,
+        generators: &impl ragu_arithmetic::FixedGenerators<C>,
+        config: ragu_arithmetic::AccelMsmConfig,
+    ) -> C::Curve
+    where
+        C::Curve: Clone + 'static,
+        C::Scalar: 'static,
+    {
+        assert!(generators.g().len() >= R::num_coeffs());
+
+        let g = generators.g();
+        ragu_arithmetic::mul_with_accel_config(
+            self.blocks.iter().flat_map(|(_, data)| data.iter()),
+            self.blocks
+                .iter()
+                .flat_map(|(start, data)| &g[*start..*start + data.len()]),
+            config,
+        )
+    }
+
     /// Computes a commitment to this polynomial, normalized to affine. For
     /// multiple commitments, prefer [`commit`](Self::commit) with
     /// [`batch_to_affine`](ragu_arithmetic::batch_to_affine) to share a
@@ -480,6 +504,21 @@ impl<F: Field, R: Rank> Polynomial<F, R> {
         generators: &impl ragu_arithmetic::FixedGenerators<C>,
     ) -> C {
         self.commit(generators).into()
+    }
+
+    /// Computes a commitment to this polynomial with explicit MSM acceleration
+    /// dispatch configuration, normalized to affine.
+    #[cfg(feature = "accel-msm")]
+    pub fn commit_to_affine_with_accel_config<C: CurveAffine<ScalarExt = F> + 'static>(
+        &self,
+        generators: &impl ragu_arithmetic::FixedGenerators<C>,
+        config: ragu_arithmetic::AccelMsmConfig,
+    ) -> C
+    where
+        C::Curve: Clone + 'static,
+        C::Scalar: 'static,
+    {
+        self.commit_with_accel_config(generators, config).into()
     }
 }
 

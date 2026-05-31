@@ -25,6 +25,8 @@ use ragu_circuits::{
 use ragu_core::Result;
 use ragu_primitives::{extract_endoscalar, vec::Len};
 
+#[cfg(feature = "accel-msm")]
+use crate::ProverAccelConfig;
 use crate::{
     header::Header,
     internal::{
@@ -37,6 +39,8 @@ use crate::{
         nested::{ChildBridgeKind, NUM_ENDOSCALING_POINTS},
     },
 };
+#[cfg(not(feature = "accel-msm"))]
+type ProverAccelConfig = ();
 
 /// A newtype marking a field as derived/cacheable.
 ///
@@ -514,7 +518,24 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
         self.trivial_proof().carry(())
     }
 
+    #[cfg(feature = "accel-msm")]
+    pub(crate) fn trivial_pcd_with_accel_config(
+        &self,
+        accel_config: ProverAccelConfig,
+    ) -> Pcd<C, R, ()> {
+        self.trivial_proof_with_accel_config(accel_config).carry(())
+    }
+
     pub(crate) fn trivial_proof(&self) -> Proof<C, R> {
+        self.trivial_proof_inner(None)
+    }
+
+    #[cfg(feature = "accel-msm")]
+    fn trivial_proof_with_accel_config(&self, accel_config: ProverAccelConfig) -> Proof<C, R> {
+        self.trivial_proof_inner(Some(accel_config))
+    }
+
+    fn trivial_proof_inner(&self, accel_config: Option<ProverAccelConfig>) -> Proof<C, R> {
         let ones_host = {
             let mut view = sparse::View::<_, R, _>::trace();
             view.a.push(C::CircuitField::ONE);
@@ -523,14 +544,22 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
             view.d.push(C::CircuitField::ONE);
             view.build()
         };
-        let host_commitment = ones_host.commit_to_affine(C::host_generators(self.params));
 
         // registry_xy must be the actual registry evaluation (fuse cross-checks it).
         let registry_xy_poly = self
             .native_registry
             .xy(C::CircuitField::ONE, C::CircuitField::ONE);
 
-        let mut builder = ProofBuilder::new(self.params, C::ScalarField::ONE);
+        #[cfg(feature = "accel-msm")]
+        let mut builder =
+            ProofBuilder::new_with_accel_config(self.params, C::ScalarField::ONE, accel_config);
+        #[cfg(not(feature = "accel-msm"))]
+        let mut builder = {
+            let _ = accel_config;
+            ProofBuilder::new(self.params, C::ScalarField::ONE)
+        };
+
+        let host_commitment = builder.commit_native(&ones_host);
 
         builder.set_circuit_id(CircuitIndex::new(0));
         builder.set_left_header(vec![C::CircuitField::ZERO; HEADER_SIZE]);
@@ -562,7 +591,6 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
         // Order: s_prime, inner_error, f first (independent of p_commitment),
         // then endoscaling (computes p_commitment), then preamble (needs
         // p_commitment for ChildWitness.p), then native_p_poly.
-        let nested_gen = C::nested_generators(self.params);
         {
             let rx = nested::stages::s_prime::Stage::<C::HostCurve, R>::rx(
                 C::ScalarField::ONE,
@@ -573,7 +601,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
                 },
             )
             .expect("trivial s_prime rx");
-            let commitment = rx.commit_to_affine(nested_gen);
+            let commitment = builder.commit_nested(&rx);
             builder.set_bridge_s_prime_rx(rx, commitment);
         }
         {
@@ -585,7 +613,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
                 },
             )
             .expect("trivial inner_error rx");
-            let commitment = rx.commit_to_affine(nested_gen);
+            let commitment = builder.commit_nested(&rx);
             builder.set_bridge_inner_error_rx(rx, commitment);
         }
         {
@@ -596,7 +624,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
                 },
             )
             .expect("trivial f rx");
-            let commitment = rx.commit_to_affine(nested_gen);
+            let commitment = builder.commit_nested(&rx);
             builder.set_bridge_f_rx(rx, commitment);
         }
 
@@ -678,7 +706,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
                 },
             )
             .expect("trivial preamble rx");
-            let commitment = rx.commit_to_affine(nested_gen);
+            let commitment = builder.commit_nested(&rx);
             builder.set_bridge_preamble_rx(rx, commitment);
         }
 

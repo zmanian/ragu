@@ -4,7 +4,13 @@ use pasta_curves::{EpAffine, Fq, group::CurveAffine};
 use ragu_arithmetic::mul;
 use rand::{SeedableRng, rngs::StdRng};
 
+#[cfg(feature = "accel-msm")]
+use ragu_arithmetic::{accel_msm_stats, reset_accel_msm_stats};
+
 fn msm_bench(c: &mut Criterion) {
+    #[cfg(feature = "accel-msm")]
+    reset_accel_msm_stats();
+
     let mut group = c.benchmark_group("msm");
 
     for size in [64, 256, 1024, 4096, 8192] {
@@ -20,6 +26,15 @@ fn msm_bench(c: &mut Criterion) {
     }
 
     group.finish();
+
+    #[cfg(feature = "accel-msm")]
+    {
+        let stats = accel_msm_stats();
+        eprintln!(
+            "accel-msm stats: candidates={} facade_results={} fallbacks={} total_candidate_points={}",
+            stats.candidates, stats.facade_results, stats.fallbacks, stats.total_candidate_points
+        );
+    }
 }
 
 criterion_group!(benches, msm_bench);
