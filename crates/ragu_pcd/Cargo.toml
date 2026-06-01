@@ -26,6 +26,7 @@ rustdoc-args = ["--html-in-header", "katex-header.html"]
 all-features = true
 
 [features]
+accel-fft = ["std", "ragu_arithmetic/accel-fft"]
 accel-msm = ["std", "ragu_arithmetic/accel-msm", "ragu_circuits/accel-msm"]
 alloc = []
 default = ["alloc"]

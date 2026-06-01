@@ -6,6 +6,8 @@ mod accel {
     use ragu_arithmetic::{
         AccelBackend, Cycle, accel_msm_stats, format_accel_msm_stats, reset_accel_msm_stats,
     };
+    #[cfg(feature = "accel-fft")]
+    use ragu_arithmetic::{accel_fft_stats, format_accel_fft_stats, reset_accel_fft_stats};
     use ragu_circuits::polynomials::ProductionRank;
     use ragu_pasta::{Fp, Pasta};
     use ragu_pcd::{Application, ApplicationBuilder, Pcd, ProverAccelConfig};
@@ -19,6 +21,8 @@ mod accel {
 
     pub fn bench(c: &mut Criterion) {
         reset_accel_msm_stats();
+        #[cfg(feature = "accel-fft")]
+        reset_accel_fft_stats();
 
         let (app, poseidon_params) = setup_app();
         let accel_auto = accel_config(AccelBackend::Auto);
@@ -142,6 +146,12 @@ mod accel {
 
         let stats = accel_msm_stats();
         eprintln!("pcd accel-msm stats: {}", format_accel_msm_stats(&stats));
+
+        #[cfg(feature = "accel-fft")]
+        {
+            let stats = accel_fft_stats();
+            eprintln!("pcd accel-fft stats: {}", format_accel_fft_stats(&stats));
+        }
     }
 
     fn setup_app() -> (BenchApp, BenchParams) {
