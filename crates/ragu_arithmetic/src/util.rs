@@ -11,6 +11,21 @@ use crate::{domain::Domain, multicore::*};
 #[cfg(feature = "accel-msm")]
 use core::sync::atomic::{AtomicU64, Ordering};
 
+/// Number of MSM-size buckets recorded in [`AccelMsmStats::candidate_size_buckets`].
+#[cfg(feature = "accel-msm")]
+pub const ACCEL_MSM_SIZE_BUCKETS: usize = 6;
+
+/// Inclusive MSM-size bucket labels for candidate acceleration attempts.
+#[cfg(feature = "accel-msm")]
+pub const ACCEL_MSM_SIZE_BUCKET_LABELS: [&str; ACCEL_MSM_SIZE_BUCKETS] = [
+    "0_255",
+    "256_1023",
+    "1024_4095",
+    "4096_16383",
+    "16384_65535",
+    "65536_plus",
+];
+
 /// Runtime counters for feature-gated MSM acceleration dispatch.
 #[cfg(feature = "accel-msm")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -26,6 +41,9 @@ pub struct AccelMsmStats {
 
     /// Total points across candidate MSMs.
     pub total_candidate_points: u64,
+
+    /// Candidate MSM count by input-size bucket.
+    pub candidate_size_buckets: [u64; ACCEL_MSM_SIZE_BUCKETS],
 }
 
 /// Configuration for feature-gated MSM acceleration dispatch.
@@ -75,6 +93,24 @@ static ACCEL_MSM_FALLBACKS: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "accel-msm")]
 static ACCEL_MSM_TOTAL_CANDIDATE_POINTS: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_BUCKET_0_255: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_BUCKET_256_1023: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_BUCKET_1024_4095: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_BUCKET_4096_16383: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_BUCKET_16384_65535: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "accel-msm")]
+static ACCEL_MSM_BUCKET_65536_PLUS: AtomicU64 = AtomicU64::new(0);
+
 /// Returns current MSM acceleration dispatch counters.
 #[cfg(feature = "accel-msm")]
 pub fn accel_msm_stats() -> AccelMsmStats {
@@ -83,6 +119,14 @@ pub fn accel_msm_stats() -> AccelMsmStats {
         facade_results: ACCEL_MSM_FACADE_RESULTS.load(Ordering::Relaxed),
         fallbacks: ACCEL_MSM_FALLBACKS.load(Ordering::Relaxed),
         total_candidate_points: ACCEL_MSM_TOTAL_CANDIDATE_POINTS.load(Ordering::Relaxed),
+        candidate_size_buckets: [
+            ACCEL_MSM_BUCKET_0_255.load(Ordering::Relaxed),
+            ACCEL_MSM_BUCKET_256_1023.load(Ordering::Relaxed),
+            ACCEL_MSM_BUCKET_1024_4095.load(Ordering::Relaxed),
+            ACCEL_MSM_BUCKET_4096_16383.load(Ordering::Relaxed),
+            ACCEL_MSM_BUCKET_16384_65535.load(Ordering::Relaxed),
+            ACCEL_MSM_BUCKET_65536_PLUS.load(Ordering::Relaxed),
+        ],
     }
 }
 
@@ -93,12 +137,31 @@ pub fn reset_accel_msm_stats() {
     ACCEL_MSM_FACADE_RESULTS.store(0, Ordering::Relaxed);
     ACCEL_MSM_FALLBACKS.store(0, Ordering::Relaxed);
     ACCEL_MSM_TOTAL_CANDIDATE_POINTS.store(0, Ordering::Relaxed);
+    ACCEL_MSM_BUCKET_0_255.store(0, Ordering::Relaxed);
+    ACCEL_MSM_BUCKET_256_1023.store(0, Ordering::Relaxed);
+    ACCEL_MSM_BUCKET_1024_4095.store(0, Ordering::Relaxed);
+    ACCEL_MSM_BUCKET_4096_16383.store(0, Ordering::Relaxed);
+    ACCEL_MSM_BUCKET_16384_65535.store(0, Ordering::Relaxed);
+    ACCEL_MSM_BUCKET_65536_PLUS.store(0, Ordering::Relaxed);
+}
+
+#[cfg(feature = "accel-msm")]
+fn accel_msm_size_bucket(points: usize) -> &'static AtomicU64 {
+    match points {
+        0..=255 => &ACCEL_MSM_BUCKET_0_255,
+        256..=1023 => &ACCEL_MSM_BUCKET_256_1023,
+        1024..=4095 => &ACCEL_MSM_BUCKET_1024_4095,
+        4096..=16383 => &ACCEL_MSM_BUCKET_4096_16383,
+        16384..=65535 => &ACCEL_MSM_BUCKET_16384_65535,
+        _ => &ACCEL_MSM_BUCKET_65536_PLUS,
+    }
 }
 
 #[cfg(feature = "accel-msm")]
 fn record_accel_msm_candidate(points: usize) {
     ACCEL_MSM_CANDIDATES.fetch_add(1, Ordering::Relaxed);
     ACCEL_MSM_TOTAL_CANDIDATE_POINTS.fetch_add(points as u64, Ordering::Relaxed);
+    accel_msm_size_bucket(points).fetch_add(1, Ordering::Relaxed);
 }
 
 #[cfg(feature = "accel-msm")]
@@ -984,6 +1047,23 @@ fn test_accel_msm_records_forced_backend_fallback() {
     assert_eq!(stats.facade_results, 0);
     assert_eq!(stats.fallbacks, 1);
     assert_eq!(stats.total_candidate_points, 64);
+}
+
+#[cfg(feature = "accel-msm")]
+#[test]
+fn test_accel_msm_records_candidate_size_buckets() {
+    reset_accel_msm_stats();
+
+    for points in [
+        0, 255, 256, 1023, 1024, 4095, 4096, 16383, 16384, 65535, 65536,
+    ] {
+        record_accel_msm_candidate(points);
+    }
+
+    let stats = accel_msm_stats();
+    assert_eq!(stats.candidates, 11);
+    assert_eq!(stats.total_candidate_points, 174587);
+    assert_eq!(stats.candidate_size_buckets, [2, 2, 2, 2, 2, 1]);
 }
 
 #[test]

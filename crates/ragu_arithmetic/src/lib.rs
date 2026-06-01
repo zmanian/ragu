@@ -104,7 +104,8 @@ pub use zcash_pasta_accel::Backend as AccelBackend;
 
 #[cfg(feature = "accel-msm")]
 pub use util::{
-    AccelMsmConfig, AccelMsmStats, accel_msm_stats, mul_with_accel_config, reset_accel_msm_stats,
+    ACCEL_MSM_SIZE_BUCKET_LABELS, ACCEL_MSM_SIZE_BUCKETS, AccelMsmConfig, AccelMsmStats,
+    accel_msm_stats, mul_with_accel_config, reset_accel_msm_stats,
 };
 
 /// Represents a "cycle" of elliptic curves where the scalar field of one curve
