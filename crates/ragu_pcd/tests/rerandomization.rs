@@ -19,6 +19,11 @@ use ragu_primitives::{
 };
 use rand::{SeedableRng, rngs::StdRng};
 
+#[cfg(feature = "accel-msm")]
+use ragu_arithmetic::{AccelBackend, accel_msm_stats, reset_accel_msm_stats};
+#[cfg(feature = "accel-msm")]
+use ragu_pcd::ProverAccelConfig;
+
 // Header A (suffix 0) - unit data
 struct HeaderA;
 
@@ -266,9 +271,6 @@ fn rerandomized_fused_proof_verifies() {
 #[cfg(feature = "accel-msm")]
 #[test]
 fn seed_with_accel_config_falls_back_and_verifies() {
-    use ragu_arithmetic::{AccelBackend, accel_msm_stats, reset_accel_msm_stats};
-    use ragu_pcd::ProverAccelConfig;
-
     let pasta = Pasta::baked();
     let app = ApplicationBuilder::<Pasta, ProductionRank, 4>::new()
         .register(Step0)
@@ -280,25 +282,87 @@ fn seed_with_accel_config_falls_back_and_verifies() {
     reset_accel_msm_stats();
 
     let (seeded, _) = app
-        .seed_with_accel_config(
-            &mut rng,
-            Step0,
-            (),
-            ProverAccelConfig {
-                backend: AccelBackend::Cuda,
-                min_msm_size: 1,
-                min_fft_log2: 0,
-                allow_gpu_witness_buffers: false,
-            },
-        )
+        .seed_with_accel_config(&mut rng, Step0, (), forced_cuda_accel_config())
         .unwrap();
 
+    assert_forced_backend_fell_back();
+
+    reset_accel_msm_stats();
+    assert!(app.verify(&seeded, &mut rng).unwrap());
+}
+
+#[cfg(feature = "accel-msm")]
+#[test]
+#[ignore = "full PCD proof-path accel fallback regression; run manually when changing prover acceleration"]
+fn fuse_with_accel_config_falls_back_and_verifies() {
+    let pasta = Pasta::baked();
+    let app = ApplicationBuilder::<Pasta, ProductionRank, 4>::new()
+        .register(Step0)
+        .unwrap()
+        .register(Step1)
+        .unwrap()
+        .finalize(pasta)
+        .unwrap();
+
+    let mut rng = StdRng::seed_from_u64(5252);
+    let (left, _) = app.seed(&mut rng, Step0, ()).unwrap();
+    let (right, _) = app.seed(&mut rng, Step0, ()).unwrap();
+
+    reset_accel_msm_stats();
+    let (fused, _) = app
+        .fuse_with_accel_config(&mut rng, Step1, (), left, right, forced_cuda_accel_config())
+        .unwrap();
+
+    assert_forced_backend_fell_back();
+
+    reset_accel_msm_stats();
+    assert!(app.verify(&fused, &mut rng).unwrap());
+}
+
+#[cfg(feature = "accel-msm")]
+#[test]
+#[ignore = "full PCD proof-path accel fallback regression; run manually when changing prover acceleration"]
+fn rerandomize_with_accel_config_falls_back_and_preserves_data() {
+    let pasta = Pasta::baked();
+    let app = ApplicationBuilder::<Pasta, ProductionRank, 4>::new()
+        .register(StepWithData)
+        .unwrap()
+        .finalize(pasta)
+        .unwrap();
+
+    let mut rng = StdRng::seed_from_u64(6262);
+    let test_data = Fp::from(987654321u64);
+    let (original, _) = app.seed(&mut rng, StepWithData, test_data).unwrap();
+
+    reset_accel_msm_stats();
+    let rerandomized = app
+        .rerandomize_with_accel_config(original.clone(), &mut rng, forced_cuda_accel_config())
+        .unwrap();
+
+    assert_forced_backend_fell_back();
+
+    assert_eq!(original.data(), rerandomized.data());
+    assert_eq!(*rerandomized.data(), test_data);
+
+    reset_accel_msm_stats();
+    assert!(app.verify(&rerandomized, &mut rng).unwrap());
+}
+
+#[cfg(feature = "accel-msm")]
+fn forced_cuda_accel_config() -> ProverAccelConfig {
+    ProverAccelConfig {
+        backend: AccelBackend::Cuda,
+        min_msm_size: 1,
+        min_fft_log2: 0,
+        allow_gpu_witness_buffers: false,
+    }
+}
+
+#[cfg(feature = "accel-msm")]
+fn assert_forced_backend_fell_back() {
     let stats = accel_msm_stats();
     assert!(stats.candidates > 0);
     assert!(stats.fallbacks > 0);
     assert_eq!(stats.facade_results, 0);
     assert_eq!(stats.fallbacks, stats.candidates);
-
-    reset_accel_msm_stats();
-    assert!(app.verify(&seeded, &mut rng).unwrap());
 }
