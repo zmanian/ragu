@@ -23,6 +23,9 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
+[features]
+accel-msm = ["ragu_arithmetic/accel-msm", "ragu_circuits/accel-msm"]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
@@ -233,6 +236,16 @@ bench = false
 [[bin]]
 name = "fuzz_io_roundtrip"
 path = "fuzz_targets/fuzz_io_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+# Accelerated sparse commitments: normal commitment must match explicit
+# accel-config commitment, and forced unavailable backends must fall back.
+[[bin]]
+name = "fuzz_accelerated_commitments"
+path = "fuzz_targets/fuzz_accelerated_commitments.rs"
+required-features = ["accel-msm"]
 test = false
 doc = false
 bench = false

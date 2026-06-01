@@ -7,6 +7,7 @@
 #   ./fuzz.sh 300 -j                          # 5 min each, parallel
 #   DICT=1 ./fuzz.sh                          # Load dict.txt
 #   ASAN=1 ./fuzz.sh                          # Re-enable AddressSanitizer
+#   ACCEL_MSM=1 ./fuzz.sh                      # Include accel-msm commitment target
 #   ./fuzz.sh summarize <target> <file>       # Decode a corpus/crash input
 #   ./fuzz.sh triage <file>                   # Triage a fuzz_witness_cheat crash
 #
@@ -79,6 +80,7 @@ DURATION="${1:-30}"
 PARALLEL="${2:-}"
 DICT="${DICT:-}"
 ASAN="${ASAN:-}"
+ACCEL_MSM="${ACCEL_MSM:-}"
 
 DICT_FLAG=""
 if [[ -n "$DICT" ]]; then
@@ -115,10 +117,19 @@ TARGETS=(
   fuzz_io_roundtrip
 )
 
+if [[ -n "$ACCEL_MSM" ]]; then
+  TARGETS+=(fuzz_accelerated_commitments)
+fi
+
 run_target() {
   local target="$1"
+  local feature_flags=()
+  if [[ "$target" == "fuzz_accelerated_commitments" ]]; then
+    feature_flags=(--features accel-msm)
+  fi
+
   echo "=== $target (${DURATION}s) ==="
-  cargo +nightly fuzz run --fuzz-dir . $SAN_FLAG "$target" -- \
+  cargo +nightly fuzz run --fuzz-dir . "${feature_flags[@]}" $SAN_FLAG "$target" -- \
     $DICT_FLAG \
     -max_len=1024 \
     -max_total_time="$DURATION" \

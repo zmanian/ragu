@@ -1,6 +1,6 @@
 # `ragu_testing-fuzz`
 
-cargo-fuzz harness for the Ragu project. 20 fuzz targets + 1 auxiliary
+cargo-fuzz harness for the Ragu project. 21 fuzz targets + 1 auxiliary
 dictionary-extractor tool. Standalone workspace (the `[workspace]` table in
 `Cargo.toml` makes this crate its own root) so nightly + libfuzzer flags
 don't leak into the rest of the repo.
@@ -21,12 +21,19 @@ don't leak into the rest of the repo.
 # With the field-element constant dictionary loaded.
 DICT=1 ./fuzz.sh
 
+# Include the optional accel-msm sparse commitment target.
+ACCEL_MSM=1 ./fuzz.sh
+
 # Re-enable AddressSanitizer for memory-bug coverage (slower, but
 # required for triaging crash artifacts properly).
 ASAN=1 ./fuzz.sh
 
 # Run a single target directly.
 cargo +nightly fuzz run fuzz_element_ops -- -max_total_time=60
+
+# Run the optional accelerated-commitment target directly.
+cargo +nightly fuzz run --fuzz-dir . \
+  --features accel-msm fuzz_accelerated_commitments -- -max_total_time=60
 ```
 
 ## Targets
@@ -65,6 +72,12 @@ All four share an essentially identical `Op` enum and dispatch — see the
 | `fuzz_revdot` | Reverse-dot-product primitive. |
 | `fuzz_fold_revdot` | RevDot folding. |
 | `fuzz_sxy_agreement` | `s(X, Y)` registry consistency. Caught `Key::new(0)` divide-by-zero. |
+
+### Acceleration targets
+
+| Target | What it catches |
+|---|---|
+| `fuzz_accelerated_commitments` | Optional `accel-msm` target. Generates sparse-ish `Polynomial<Fp, TestRank>` commitments and compares default CPU commitment against explicit `commit_to_affine_with_accel_config` while forcing the unavailable CUDA backend. The commitment must match and counters must show fallback, not a facade result. |
 
 ### Verifier robustness
 
