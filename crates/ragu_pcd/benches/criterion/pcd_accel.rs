@@ -3,7 +3,9 @@ use criterion::{Criterion, criterion_group, criterion_main};
 #[cfg(feature = "accel-msm")]
 mod accel {
     use criterion::{BatchSize, Criterion};
-    use ragu_arithmetic::{AccelBackend, Cycle, accel_msm_stats, reset_accel_msm_stats};
+    use ragu_arithmetic::{
+        AccelBackend, Cycle, accel_msm_stats, format_accel_msm_stats, reset_accel_msm_stats,
+    };
     use ragu_circuits::polynomials::ProductionRank;
     use ragu_pasta::{Fp, Pasta};
     use ragu_pcd::{Application, ApplicationBuilder, Pcd, ProverAccelConfig};
@@ -139,10 +141,7 @@ mod accel {
         group.finish();
 
         let stats = accel_msm_stats();
-        eprintln!(
-            "pcd accel-msm stats: candidates={} facade_results={} fallbacks={} total_candidate_points={}",
-            stats.candidates, stats.facade_results, stats.fallbacks, stats.total_candidate_points
-        );
+        eprintln!("pcd accel-msm stats: {}", format_accel_msm_stats(&stats));
     }
 
     fn setup_app() -> (BenchApp, BenchParams) {

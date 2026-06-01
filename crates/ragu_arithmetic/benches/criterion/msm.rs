@@ -5,7 +5,7 @@ use ragu_arithmetic::mul;
 use rand::{SeedableRng, rngs::StdRng};
 
 #[cfg(feature = "accel-msm")]
-use ragu_arithmetic::{accel_msm_stats, reset_accel_msm_stats};
+use ragu_arithmetic::{accel_msm_stats, format_accel_msm_stats, reset_accel_msm_stats};
 
 fn msm_bench(c: &mut Criterion) {
     #[cfg(feature = "accel-msm")]
@@ -30,10 +30,7 @@ fn msm_bench(c: &mut Criterion) {
     #[cfg(feature = "accel-msm")]
     {
         let stats = accel_msm_stats();
-        eprintln!(
-            "accel-msm stats: candidates={} facade_results={} fallbacks={} total_candidate_points={}",
-            stats.candidates, stats.facade_results, stats.fallbacks, stats.total_candidate_points
-        );
+        eprintln!("accel-msm stats: {}", format_accel_msm_stats(&stats));
     }
 }
 

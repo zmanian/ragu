@@ -1,4 +1,6 @@
 use alloc::{boxed::Box, vec, vec::Vec};
+#[cfg(feature = "accel-msm")]
+use alloc::{format, string::String};
 
 use ff::{Field, PrimeField};
 use pasta_curves::{
@@ -128,6 +130,32 @@ pub fn accel_msm_stats() -> AccelMsmStats {
             ACCEL_MSM_BUCKET_65536_PLUS.load(Ordering::Relaxed),
         ],
     }
+}
+
+/// Formats MSM acceleration dispatch counters for benchmark and profiling logs.
+#[cfg(feature = "accel-msm")]
+pub fn format_accel_msm_stats(stats: &AccelMsmStats) -> String {
+    let mut formatted = format!(
+        "candidates={} facade_results={} fallbacks={} total_candidate_points={} candidate_size_buckets={{",
+        stats.candidates, stats.facade_results, stats.fallbacks, stats.total_candidate_points
+    );
+
+    for (index, (label, count)) in ACCEL_MSM_SIZE_BUCKET_LABELS
+        .iter()
+        .zip(stats.candidate_size_buckets)
+        .enumerate()
+    {
+        if index > 0 {
+            formatted.push(',');
+        }
+
+        formatted.push_str(label);
+        formatted.push('=');
+        formatted.push_str(&format!("{count}"));
+    }
+
+    formatted.push('}');
+    formatted
 }
 
 /// Resets MSM acceleration dispatch counters.
@@ -1064,6 +1092,23 @@ fn test_accel_msm_records_candidate_size_buckets() {
     assert_eq!(stats.candidates, 11);
     assert_eq!(stats.total_candidate_points, 174587);
     assert_eq!(stats.candidate_size_buckets, [2, 2, 2, 2, 2, 1]);
+}
+
+#[cfg(feature = "accel-msm")]
+#[test]
+fn test_format_accel_msm_stats_includes_size_buckets() {
+    let stats = AccelMsmStats {
+        candidates: 3,
+        facade_results: 1,
+        fallbacks: 2,
+        total_candidate_points: 42,
+        candidate_size_buckets: [1, 0, 2, 0, 0, 0],
+    };
+
+    assert_eq!(
+        format_accel_msm_stats(&stats),
+        "candidates=3 facade_results=1 fallbacks=2 total_candidate_points=42 candidate_size_buckets={0_255=1,256_1023=0,1024_4095=2,4096_16383=0,16384_65535=0,65536_plus=0}"
+    );
 }
 
 #[test]
