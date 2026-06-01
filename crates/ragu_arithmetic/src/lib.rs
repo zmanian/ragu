@@ -82,6 +82,11 @@ mod util;
 
 pub use coeff::Coeff;
 pub use domain::Domain;
+#[cfg(feature = "accel-fft")]
+pub use domain::{
+    ACCEL_FFT_LOG2_BUCKETS, AccelFftStats, accel_fft_stats, format_accel_fft_stats,
+    reset_accel_fft_stats,
+};
 use ff::{Field, FromUniformBytes, WithSmallOrderMulGroup};
 pub use fft::{Ring, bitreverse};
 pub use pasta_curves::{

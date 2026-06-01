@@ -4,7 +4,13 @@ use pasta_curves::Fp;
 use ragu_arithmetic::Domain;
 use rand::{SeedableRng, rngs::StdRng};
 
+#[cfg(feature = "accel-fft")]
+use ragu_arithmetic::{accel_fft_stats, format_accel_fft_stats, reset_accel_fft_stats};
+
 fn fft_bench(c: &mut Criterion) {
+    #[cfg(feature = "accel-fft")]
+    reset_accel_fft_stats();
+
     let mut group = c.benchmark_group("fft");
 
     for log2_n in [10, 14, 18] {
@@ -22,9 +28,18 @@ fn fft_bench(c: &mut Criterion) {
     }
 
     group.finish();
+
+    #[cfg(feature = "accel-fft")]
+    {
+        let stats = accel_fft_stats();
+        eprintln!("fft accel stats: {}", format_accel_fft_stats(&stats));
+    }
 }
 
 fn ifft_bench(c: &mut Criterion) {
+    #[cfg(feature = "accel-fft")]
+    reset_accel_fft_stats();
+
     let mut group = c.benchmark_group("ifft");
 
     for log2_n in [10, 14, 18] {
@@ -42,6 +57,12 @@ fn ifft_bench(c: &mut Criterion) {
     }
 
     group.finish();
+
+    #[cfg(feature = "accel-fft")]
+    {
+        let stats = accel_fft_stats();
+        eprintln!("ifft accel stats: {}", format_accel_fft_stats(&stats));
+    }
 }
 
 criterion_group!(benches, fft_bench, ifft_bench);
