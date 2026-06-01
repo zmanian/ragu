@@ -220,6 +220,42 @@ pub fn format_accel_msm_stats(stats: &AccelMsmStats) -> String {
     formatted
 }
 
+/// Plans CPU, batched, and immediate-dispatch MSM work from observed Ragu sizes.
+#[cfg(feature = "accel-msm")]
+pub fn plan_accel_msm_schedule<I>(
+    msm_sizes: I,
+    config: AccelMsmConfig,
+) -> zcash_pasta_accel::MsmBatchPlan
+where
+    I: IntoIterator<Item = usize>,
+{
+    let msm_sizes = msm_sizes.into_iter().collect::<Vec<_>>();
+    zcash_pasta_accel::plan_msm_schedule(
+        &msm_sizes,
+        zcash_pasta_accel::MsmBatchConfig {
+            backend: config.backend,
+            min_single_msm_size: config.min_msm_size,
+            ..zcash_pasta_accel::MsmBatchConfig::default()
+        },
+    )
+}
+
+/// Formats MSM schedule summary counters for Ragu benchmark and profiling logs.
+#[cfg(feature = "accel-msm")]
+pub fn format_accel_msm_schedule_summary(
+    summary: &zcash_pasta_accel::MsmScheduleSummary,
+) -> String {
+    format!(
+        "cpu_items={} cpu_points={} batch_items={} batch_points={} immediate_items={} immediate_points={}",
+        summary.cpu_items,
+        summary.cpu_points,
+        summary.batch_items,
+        summary.batch_points,
+        summary.immediate_items,
+        summary.immediate_points
+    )
+}
+
 /// Resets MSM acceleration dispatch counters.
 #[cfg(feature = "accel-msm")]
 pub fn reset_accel_msm_stats() {
@@ -1223,6 +1259,43 @@ fn test_accel_msm_records_candidate_size_buckets() {
     assert_eq!(stats.candidates, 11);
     assert_eq!(stats.total_candidate_points, 174587);
     assert_eq!(stats.candidate_size_buckets, [2, 2, 2, 2, 2, 1]);
+}
+
+#[cfg(feature = "accel-msm")]
+#[test]
+fn test_accel_msm_schedule_plan_uses_ragu_config_thresholds() {
+    let plan = plan_accel_msm_schedule(
+        [512, 1024, 3072, 4096],
+        AccelMsmConfig {
+            backend: zcash_pasta_accel::Backend::Cuda,
+            min_msm_size: 4096,
+        },
+    );
+
+    assert_eq!(
+        plan.decisions,
+        vec![
+            zcash_pasta_accel::MsmScheduleDecision::Cpu,
+            zcash_pasta_accel::MsmScheduleDecision::Batch,
+            zcash_pasta_accel::MsmScheduleDecision::Batch,
+            zcash_pasta_accel::MsmScheduleDecision::Immediate,
+        ]
+    );
+    assert_eq!(
+        plan.summary,
+        zcash_pasta_accel::MsmScheduleSummary {
+            cpu_items: 1,
+            cpu_points: 512,
+            batch_items: 2,
+            batch_points: 4096,
+            immediate_items: 1,
+            immediate_points: 4096,
+        }
+    );
+    assert_eq!(
+        format_accel_msm_schedule_summary(&plan.summary),
+        "cpu_items=1 cpu_points=512 batch_items=2 batch_points=4096 immediate_items=1 immediate_points=4096"
+    );
 }
 
 #[cfg(feature = "accel-msm")]

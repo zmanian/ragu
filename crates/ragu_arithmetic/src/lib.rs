@@ -105,12 +105,17 @@ pub use util::{
 
 #[cfg(feature = "accel-msm")]
 /// Backend selector for feature-gated MSM acceleration dispatch.
-pub use zcash_pasta_accel::Backend as AccelBackend;
+pub use zcash_pasta_accel::{
+    Backend as AccelBackend, MsmBatchConfig as AccelMsmBatchConfig,
+    MsmBatchPlan as AccelMsmBatchPlan, MsmScheduleDecision as AccelMsmScheduleDecision,
+    MsmScheduleSummary as AccelMsmScheduleSummary,
+};
 
 #[cfg(feature = "accel-msm")]
 pub use util::{
     ACCEL_MSM_SIZE_BUCKET_LABELS, ACCEL_MSM_SIZE_BUCKETS, AccelMsmConfig, AccelMsmStats,
-    accel_msm_stats, format_accel_msm_stats, mul_with_accel_config, reset_accel_msm_stats,
+    accel_msm_stats, format_accel_msm_schedule_summary, format_accel_msm_stats,
+    mul_with_accel_config, plan_accel_msm_schedule, reset_accel_msm_stats,
 };
 
 /// Represents a "cycle" of elliptic curves where the scalar field of one curve

@@ -5,7 +5,12 @@ use ragu_arithmetic::mul;
 use rand::{SeedableRng, rngs::StdRng};
 
 #[cfg(feature = "accel-msm")]
-use ragu_arithmetic::{accel_msm_stats, format_accel_msm_stats, reset_accel_msm_stats};
+use ragu_arithmetic::{
+    AccelMsmConfig, accel_msm_stats, format_accel_msm_schedule_summary, format_accel_msm_stats,
+    plan_accel_msm_schedule, reset_accel_msm_stats,
+};
+
+const MSM_BENCH_SIZES: &[usize] = &[64, 256, 1024, 4096, 8192];
 
 fn msm_bench(c: &mut Criterion) {
     #[cfg(feature = "accel-msm")]
@@ -13,7 +18,7 @@ fn msm_bench(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("msm");
 
-    for size in [64, 256, 1024, 4096, 8192] {
+    for &size in MSM_BENCH_SIZES {
         let mut rng = StdRng::seed_from_u64(1234);
         let coeffs: Vec<Fq> = (0..size).map(|_| Fq::random(&mut rng)).collect();
         let bases: Vec<EpAffine> = (0..size)
@@ -31,6 +36,13 @@ fn msm_bench(c: &mut Criterion) {
     {
         let stats = accel_msm_stats();
         eprintln!("accel-msm stats: {}", format_accel_msm_stats(&stats));
+
+        let plan =
+            plan_accel_msm_schedule(MSM_BENCH_SIZES.iter().copied(), AccelMsmConfig::default());
+        eprintln!(
+            "accel-msm schedule: {}",
+            format_accel_msm_schedule_summary(&plan.summary)
+        );
     }
 }
 
