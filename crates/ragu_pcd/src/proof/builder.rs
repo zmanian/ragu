@@ -436,6 +436,35 @@ impl<'params, C: Cycle, R: Rank> ProofBuilder<'params, C, R> {
         poly.commit(C::host_generators(self.params))
     }
 
+    /// Commits an arbitrary native-field MSM to the host curve in projective form.
+    pub(crate) fn commit_native_msm_projective<
+        's,
+        'b,
+        A: IntoIterator<Item = &'s C::CircuitField>,
+        B: IntoIterator<Item = &'b C::HostCurve>,
+    >(
+        &self,
+        coeffs: A,
+        bases: B,
+    ) -> <C::HostCurve as ragu_arithmetic::CurveAffine>::CurveExt
+    where
+        C::CircuitField: 's + 'static,
+        C::HostCurve: 'b + 'static,
+        <C::HostCurve as ragu_arithmetic::CurveAffine>::CurveExt: Clone + 'static,
+        B::IntoIter: Clone + Sync,
+    {
+        #[cfg(feature = "accel-msm")]
+        if let Some(config) = self.accel_config {
+            return ragu_arithmetic::mul_with_accel_config::<C::HostCurve, A, B>(
+                coeffs,
+                bases,
+                config.msm_config(),
+            );
+        }
+
+        ragu_arithmetic::mul::<C::HostCurve, A, B>(coeffs, bases)
+    }
+
     /// Commits a scalar-field polynomial to the nested curve.
     pub(crate) fn commit_nested(
         &self,
@@ -842,5 +871,51 @@ impl<'params, C: Cycle, R: Rank> ProofBuilder<'params, C, R> {
             child_left_stage_rx: take!(child_left_stage_rx),
             child_right_stage_rx: take!(child_right_stage_rx),
         })
+    }
+}
+
+#[cfg(all(test, feature = "accel-msm"))]
+mod tests {
+    use ff::Field;
+    use ragu_arithmetic::{
+        AccelBackend, Cycle, FixedGenerators, accel_msm_stats, reset_accel_msm_stats,
+    };
+    use ragu_circuits::polynomials::ProductionRank;
+    use ragu_pasta::Pasta;
+
+    use super::ProofBuilder;
+    use crate::ProverAccelConfig;
+
+    #[test]
+    fn native_msm_projective_uses_explicit_accel_config() {
+        let params = Pasta::baked();
+        let builder = ProofBuilder::<Pasta, ProductionRank>::new_with_accel_config(
+            params,
+            <Pasta as Cycle>::ScalarField::ONE,
+            Some(ProverAccelConfig {
+                backend: AccelBackend::Avx512,
+                min_msm_size: 1,
+                min_fft_log2: ProverAccelConfig::DEFAULT_MIN_FFT_LOG2,
+                allow_gpu_witness_buffers: false,
+            }),
+        );
+        let scalars = [
+            <Pasta as Cycle>::CircuitField::from(3),
+            <Pasta as Cycle>::CircuitField::from(5),
+        ];
+        let bases = [
+            Pasta::host_generators(params).g()[0],
+            Pasta::host_generators(params).g()[1],
+        ];
+        let expected = ragu_arithmetic::mul(scalars.iter(), bases.iter());
+
+        reset_accel_msm_stats();
+        let actual = builder.commit_native_msm_projective(scalars.iter(), bases.iter());
+
+        assert_eq!(actual, expected);
+        let stats = accel_msm_stats();
+        assert_eq!(stats.candidates, 1);
+        assert_eq!(stats.fallbacks, 1);
+        assert_eq!(stats.facade_results, 0);
     }
 }

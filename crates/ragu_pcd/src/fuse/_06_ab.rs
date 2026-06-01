@@ -109,7 +109,10 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                 msm.push((coeff, commitment));
             }
 
-            ragu_arithmetic::mul(msm.iter().map(|(c, _)| c), msm.iter().map(|(_, b)| b))
+            builder.commit_native_msm_projective(
+                msm.iter().map(|(coeff, _)| coeff),
+                msm.iter().map(|(_, commitment)| commitment),
+            )
         };
 
         let [a_commitment, b_commitment] = ragu_arithmetic::batch_to_affine([
