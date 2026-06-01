@@ -282,10 +282,33 @@ fn seed_with_accel_config_falls_back_and_verifies() {
     reset_accel_msm_stats();
 
     let (seeded, _) = app
-        .seed_with_accel_config(&mut rng, Step0, (), forced_cuda_accel_config())
+        .seed_with_accel_config(&mut rng, Step0, (), forced_unavailable_accel_config())
         .unwrap();
 
     assert_forced_backend_fell_back();
+
+    reset_accel_msm_stats();
+    assert!(app.verify(&seeded, &mut rng).unwrap());
+}
+
+#[cfg(feature = "accel-msm")]
+#[test]
+fn seed_with_cuda_accel_config_dispatches_or_falls_back_and_verifies() {
+    let pasta = Pasta::baked();
+    let app = ApplicationBuilder::<Pasta, ProductionRank, 4>::new()
+        .register(Step0)
+        .unwrap()
+        .finalize(pasta)
+        .unwrap();
+
+    let mut rng = StdRng::seed_from_u64(4343);
+    reset_accel_msm_stats();
+
+    let (seeded, _) = app
+        .seed_with_accel_config(&mut rng, Step0, (), cuda_accel_config())
+        .unwrap();
+
+    assert_requested_backend_dispatched_or_fell_back();
 
     reset_accel_msm_stats();
     assert!(app.verify(&seeded, &mut rng).unwrap());
@@ -310,7 +333,14 @@ fn fuse_with_accel_config_falls_back_and_verifies() {
 
     reset_accel_msm_stats();
     let (fused, _) = app
-        .fuse_with_accel_config(&mut rng, Step1, (), left, right, forced_cuda_accel_config())
+        .fuse_with_accel_config(
+            &mut rng,
+            Step1,
+            (),
+            left,
+            right,
+            forced_unavailable_accel_config(),
+        )
         .unwrap();
 
     assert_forced_backend_fell_back();
@@ -336,7 +366,11 @@ fn rerandomize_with_accel_config_falls_back_and_preserves_data() {
 
     reset_accel_msm_stats();
     let rerandomized = app
-        .rerandomize_with_accel_config(original.clone(), &mut rng, forced_cuda_accel_config())
+        .rerandomize_with_accel_config(
+            original.clone(),
+            &mut rng,
+            forced_unavailable_accel_config(),
+        )
         .unwrap();
 
     assert_forced_backend_fell_back();
@@ -349,7 +383,17 @@ fn rerandomize_with_accel_config_falls_back_and_preserves_data() {
 }
 
 #[cfg(feature = "accel-msm")]
-fn forced_cuda_accel_config() -> ProverAccelConfig {
+fn forced_unavailable_accel_config() -> ProverAccelConfig {
+    ProverAccelConfig {
+        backend: AccelBackend::Avx512,
+        min_msm_size: 1,
+        min_fft_log2: 0,
+        allow_gpu_witness_buffers: false,
+    }
+}
+
+#[cfg(feature = "accel-msm")]
+fn cuda_accel_config() -> ProverAccelConfig {
     ProverAccelConfig {
         backend: AccelBackend::Cuda,
         min_msm_size: 1,
@@ -365,4 +409,12 @@ fn assert_forced_backend_fell_back() {
     assert!(stats.fallbacks > 0);
     assert_eq!(stats.facade_results, 0);
     assert_eq!(stats.fallbacks, stats.candidates);
+}
+
+#[cfg(feature = "accel-msm")]
+fn assert_requested_backend_dispatched_or_fell_back() {
+    let stats = accel_msm_stats();
+    assert!(stats.candidates > 0);
+    assert!(stats.facade_results > 0 || stats.fallbacks > 0);
+    assert_eq!(stats.facade_results + stats.fallbacks, stats.candidates);
 }
